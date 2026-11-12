@@ -1,0 +1,64 @@
+# يبني تطبيق الآيفون ويُخرج ملف IPA غير موقّع، ليوقّعه المستخدم بأداته.
+#
+# لماذا البناء السحابي؟ تصريف تطبيق iOS يحتاج macOS وXcode، ولا يمكن ذلك على ويندوز.
+# هذا الملف يجعل GitHub يبني التطبيق على جهاز ماك مجاني ثم يعطيك ملف IPA جاهزًا للتوقيع.
+
+name: build-ipa
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ios-app/**'
+      - '.github/workflows/build-ipa.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Generate Xcode project
+        working-directory: ios-app
+        run: xcodegen generate
+
+      - name: Build (unsigned archive)
+        working-directory: ios-app
+        run: |
+          set -e
+          xcodebuild -project GameTranslatorAR.xcodeproj \
+            -scheme GameTranslatorAR \
+            -sdk iphoneos \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package unsigned IPA
+        working-directory: ios-app
+        run: |
+          set -e
+          mkdir -p build/Payload
+          cp -R build/App.xcarchive/Products/Applications/GameTranslatorAR.app build/Payload/
+          cd build && zip -qry GameTranslatorAR-unsigned.ipa Payload
+          ls -la GameTranslatorAR-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameTranslatorAR-unsigned-ipa
+          path: ios-app/build/GameTranslatorAR-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
